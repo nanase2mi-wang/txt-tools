@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EPUB 轉純文字轉換器</title>
+    <!-- 引入 JSZip 用於解壓縮 EPUB -->
+    <script src="https://cloudflare.com"></script>
+    <style>
+        body { font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 0 20px; line-height: 1.6; }
+        .box { border: 2px dashed #ccc; padding: 20px; text-align: center; background: #f9f9f9; cursor: pointer; }
+        #status { margin-top: 20px; font-weight: bold; color: #333; }
+        button { margin-top: 15px; padding: 10px 20px; font-size: 16px; display: none; }
+    </style>
+</head>
+<body>
+
+    <h2>EPUB 轉純文字工具</h2>
+    <p>完全在本機瀏覽器執行，檔案不會上傳到任何伺服器。</p>
+    
+    <div class="box" onclick="document.getElementById('fileInput').click()">
+        點擊此處選擇 EPUB 檔案
+        <input type="file" id="fileInput" accept=".epub" style="display:none">
+    </div>
+
+    <div id="status"></div>
+    <button id="downloadBtn">下載純文字檔 (.txt)</button>
+
+    <script>
+        let resultText = "";
+        let fileName = "output.txt";
+
+        document.getElementById('fileInput').addEventListener('change', async function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            fileName = file.name.replace(/\.epub$/i, '.txt');
+            const statusDiv = document.getElementById('status');
+            const downloadBtn = document.getElementById('downloadBtn');
+            
+            statusDiv.innerText = "正在處理中，請稍候...";
+            downloadBtn.style.display = "none";
+            resultText = "";
+
+            try {
+                const zip = await JSZip.loadAsync(file);
+                const htmlFiles = [];
+
+                // 1. 找出壓縮檔內所有的 HTML / XHTML 檔案
+                zip.forEach((relativePath, zipEntry) => {
+                    if (relativePath.endsWith('.html') || relativePath.endsWith('.xhtml') || relativePath.endsWith('.htm')) {
+                        htmlFiles.push(zipEntry);
+                    }
+                });
+
+                // 2. 將檔案依路徑排序（確保章節順序基本正確）
+                htmlFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true, sensitivity: 'base'}));
+
+                if (htmlFiles.length === 0) {
+                    statusDiv.innerText = "錯誤：找不到任何文字內容。";
+                    return;
+                }
+
+                // 3. 讀取內容並清除 HTML 標籤
+                const parser = new DOMParser();
+                for (const fileEntry of htmlFiles) {
+                    const content = await fileEntry.async("string");
+                    const doc = parser.parseFromString(content, "text/html");
+                    
+                    // 獲取純文字並做簡單的換行整理
+                    const text = doc.body ? doc.body.innerText : doc.documentElement.innerText;
+                    if (text.trim()) {
+                        resultText += text + "\n\n====================\n\n";
+                    }
+                }
+
+                statusDiv.innerText = `轉換成功！共處理了 ${htmlFiles.length} 個章節。`;
+                downloadBtn.style.display = "inline-block";
+
+            } catch (error) {
+                console.error(error);
+                statusDiv.innerText = "轉換失敗，請確保該檔案是正確的 EPUB 格式。";
+            }
+        });
+
+        // 4. 下載 TXT 功能
+        document.getElementById('downloadBtn').addEventListener('click', () => {
+            const blob = new Blob([resultText], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            a.click();
+            URL.revokeObjectURL(url);
+        });
+    </script>
+</body>
+</html>
